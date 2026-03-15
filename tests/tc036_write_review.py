@@ -6,7 +6,6 @@ from playwright.sync_api import Page, expect
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils.base_test import BaseTest
 from utils.data_reader import DataReader as D
-from config.config import BASE_URL
 
 class TC036_WriteReview(BaseTest):
     TC_ID    = "TC-036"
@@ -15,42 +14,71 @@ class TC036_WriteReview(BaseTest):
     PRIORITY = "Medium"
 
     def execute(self, page: Page) -> tuple[str, str]:
-        page.goto(BASE_URL + "login", wait_until="domcontentloaded")
-        page.locator("#Email").fill(D.tc("TC-036","email",D.config("admin_email")))
-        page.locator("#Password").fill(D.tc("TC-036","password",D.config("admin_password")))
+        base = D.config("base_url")
+        d    = D.all_tc(self.TC_ID)
+
+        page.goto(base + "login", wait_until="domcontentloaded")
+        page.locator("#Email").fill(d.get("email", D.config("admin_email")))
+        page.locator("#Password").fill(d.get("password", D.config("admin_password")))
         page.locator("input.button-1.login-button").click()
         page.wait_for_load_state("networkidle")
         self.step_pass(page, 1, "Login as registered user")
 
-        page.goto(BASE_URL + "books", wait_until="domcontentloaded")
+        page.goto(base + d.get("category_url", "books"), wait_until="domcontentloaded")
         page.locator(".product-item h2 a, .item-box .product-title a").first.click()
         page.wait_for_load_state("networkidle")
-        self.step_pass(page, 2, "Navigate to a product detail page")
+        self.step_pass(page, 2, "Navigate to product detail page")
 
-        review_link = page.locator("a:has-text('Add your review'), a[href*='productreviews']")
-        expect(review_link.first).to_be_visible(timeout=8_000)
-        review_link.first.click()
-        page.wait_for_load_state("networkidle")
-        self.step_pass(page, 3, "Click 'Add your review' link")
+        # Navigate directly to product reviews URL
+        current_url = page.url
+        if "/productreviews/" not in current_url:
+            # Find product ID from URL and build review URL
+            review_link = page.locator(
+                "a:has-text('Add your review'), "
+                "a[href*='productreviews'], "
+                ".write-review a"
+            ).first
+            expect(review_link).to_be_visible(timeout=8_000)
+            review_link.click()
+            page.wait_for_load_state("networkidle")
+        self.step_pass(page, 3, "Navigate to product review page")
 
-        d = D.all_tc("TC-036")
-        page.locator("#AddProductReview_Title").fill(d.get("review_title","Great Product!"))
+        # Wait for review form to be fully loaded and enabled
+        review_title = page.locator(
+            "input[id*='Title'][type='text']:not([disabled]), "
+            "#AddProductReview_Title:not([disabled])"
+        ).first
+        review_title.wait_for(state="visible", timeout=10_000)
+        review_title.wait_for(state="enabled", timeout=10_000)
+        review_title.fill(d.get("review_title", "Great Product!"))
         self.step_pass(page, 4, "Enter review title")
 
-        page.locator("#AddProductReview_ReviewText").fill(d.get("review_body","Works as expected."))
+        review_text = page.locator(
+            "textarea[id*='ReviewText']:not([disabled]), "
+            "#AddProductReview_ReviewText:not([disabled])"
+        ).first
+        review_text.fill(d.get("review_body", "Works as expected. Highly recommended."))
         self.step_pass(page, 5, "Enter review body text")
 
-        rating = d.get("review_rating","4")
-        page.locator(f"input[name='addproductrating'][value='{rating}'], label[for*='addproductrating_{rating}']").first.click()
-        self.step_pass(page, 6, "Select 4-star rating")
+        rating = d.get("review_rating", "4")
+        page.locator(
+            f"input[name='addproductrating'][value='{rating}']:not([disabled])"
+        ).first.click()
+        self.step_pass(page, 6, f"Select {rating}-star rating")
 
-        page.locator("input[value='Submit review'], button:has-text('Submit review')").first.click()
+        page.locator(
+            "input[value='Submit review']:not([disabled]), "
+            "button:has-text('Submit review'):not([disabled])"
+        ).first.click()
         page.wait_for_load_state("networkidle")
-        self.step_pass(page, 7, "Click Submit Review button")
+        self.step_pass(page, 7, "Submit review")
 
         body = page.locator("body").inner_text()
         assert any(p in body for p in ["successfully", "approved", "submitted", "review"]), \
-            "Review submission confirmation not found"
-        self.step_pass(page, 8, "Verify review submission success/confirmation message")
+            "Review confirmation message not found"
+        self.step_pass(page, 8, "Verify review submitted successfully")
 
-        return "Pass", "Product review submitted successfully. Confirmation message displayed."
+        return "Pass", "Product review submitted. Confirmation shown."
+
+if __name__ == "__main__":
+    r = TC036_WriteReview().run(); raise SystemExit(0 if r["status"] == "Pass" else 1)
