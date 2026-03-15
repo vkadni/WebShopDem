@@ -1,0 +1,142 @@
+// ============================================================================
+// Jenkinsfile – DemoWebShop Smoke Test Pipeline
+// Windows-compatible (bat instead of sh, UTF-8 encoding set)
+// ============================================================================
+
+pipeline {
+
+    agent any
+
+    parameters {
+        choice(
+            name:        'BROWSER',
+            choices:     ['chromium', 'firefox', 'webkit'],
+            description: 'Browser to run tests in'
+        )
+        string(
+            name:         'APP_URL',
+            defaultValue: 'https://demowebshop.tricentis.com/',
+            description:  'Application URL under test'
+        )
+        string(
+            name:         'TC_IDS',
+            defaultValue: '',
+            description:  'Space-separated TC IDs (blank = run all, e.g. TC-001 TC-002)'
+        )
+        string(
+            name:         'TESTER_NAME',
+            defaultValue: 'Jenkins CI',
+            description:  'Tester name written to result files'
+        )
+        booleanParam(
+            name:         'HEADLESS',
+            defaultValue: true,
+            description:  'Run browser headless (recommended true for CI)'
+        )
+        string(
+            name:         'RETRY_COUNT',
+            defaultValue: '1',
+            description:  'Number of retries on test failure'
+        )
+    }
+
+    environment {
+        APP_URL       = "${params.APP_URL}"
+        BROWSER       = "${params.BROWSER}"
+        HEADLESS      = "${params.HEADLESS}"
+        TESTER_NAME   = "${params.TESTER_NAME}"
+        RETRY_COUNT   = "${params.RETRY_COUNT}"
+        SLOW_MO       = "0"
+        PYTHONPATH    = "${WORKSPACE}"
+        PYTHONIOENCODING = "utf-8"
+        PYTHONUTF8    = "1"
+    }
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timestamps()
+    }
+
+    stages {
+
+        // ── Checkout ──────────────────────────────────────────────────────────
+        stage('Checkout') {
+            steps {
+                echo "Checking out source code..."
+                checkout scm
+            }
+        }
+
+        // ── Setup Python environment ──────────────────────────────────────────
+        stage('Setup Environment') {
+            steps {
+                echo "Installing Python dependencies..."
+                bat "python -m pip install --upgrade pip --quiet"
+                bat "pip install playwright openpyxl pillow --quiet"
+                bat "python -m playwright install chromium"
+            }
+        }
+
+        // ── Validate Excel data file ──────────────────────────────────────────
+        stage('Validate Test Data') {
+            steps {
+                echo "Validating test data file..."
+                bat "python -c \"import openpyxl; wb = openpyxl.load_workbook('data/test_data.xlsx'); print('Sheets found:', len(wb.sheetnames)); print('Test data OK')\""
+            }
+        }
+
+        // ── Run smoke tests ───────────────────────────────────────────────────
+        stage('Run Smoke Tests') {
+            steps {
+                echo "Running smoke tests..."
+                script {
+                    def tcArg       = params.TC_IDS?.trim() ? "--tc ${params.TC_IDS}" : ""
+                    def browserArg  = "--browser ${params.BROWSER}"
+                    def headlessArg = params.HEADLESS ? "--headless" : ""
+                    bat "python -X utf8 run_tests.py ${tcArg} ${browserArg} ${headlessArg}"
+                }
+            }
+        }
+
+        // ── Publish HTML report ───────────────────────────────────────────────
+        stage('Publish Report') {
+            steps {
+                echo "Publishing HTML report..."
+                publishHTML(target: [
+                    allowMissing:          true,
+                    alwaysLinkToLastBuild: true,
+                    keepAll:               true,
+                    reportDir:             'reports',
+                    reportFiles:           '*.html',
+                    reportName:            'Smoke Test Report',
+                    reportTitles:          'DemoWebShop Smoke Tests'
+                ])
+            }
+        }
+
+        // ── Archive artifacts ─────────────────────────────────────────────────
+        stage('Archive Artifacts') {
+            steps {
+                echo "Archiving results..."
+                archiveArtifacts(
+                    artifacts:         'screenshots/**/*.png, reports/*.html, reports/*.xlsx, data/*.xlsx',
+                    allowEmptyArchive: true,
+                    fingerprint:       true
+                )
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline PASSED - all smoke tests green."
+        }
+        failure {
+            echo "Pipeline FAILED - check Smoke Test Report for details."
+        }
+        always {
+            echo "Build #${env.BUILD_NUMBER} complete."
+        }
+    }
+}
