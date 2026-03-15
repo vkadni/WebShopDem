@@ -41,15 +41,15 @@ pipeline {
     }
 
     environment {
-        APP_URL       = "${params.APP_URL}"
-        BROWSER       = "${params.BROWSER}"
-        HEADLESS      = "${params.HEADLESS}"
-        TESTER_NAME   = "${params.TESTER_NAME}"
-        RETRY_COUNT   = "${params.RETRY_COUNT}"
-        SLOW_MO       = "0"
-        PYTHONPATH    = "${WORKSPACE}"
+        APP_URL          = "${params.APP_URL}"
+        BROWSER          = "${params.BROWSER}"
+        HEADLESS         = "${params.HEADLESS}"
+        TESTER_NAME      = "${params.TESTER_NAME}"
+        RETRY_COUNT      = "${params.RETRY_COUNT}"
+        SLOW_MO          = "0"
+        PYTHONPATH       = "${WORKSPACE}"
         PYTHONIOENCODING = "utf-8"
-        PYTHONUTF8    = "1"
+        PYTHONUTF8       = "1"
     }
 
     options {
@@ -99,28 +99,12 @@ pipeline {
             }
         }
 
-        // ── Publish HTML report ───────────────────────────────────────────────
-        stage('Publish Report') {
+        // ── Archive all artifacts ─────────────────────────────────────────────
+        stage('Archive Results') {
             steps {
-                echo "Publishing HTML report..."
-                publishHTML(target: [
-                    allowMissing:          true,
-                    alwaysLinkToLastBuild: true,
-                    keepAll:               true,
-                    reportDir:             'reports',
-                    reportFiles:           '*.html',
-                    reportName:            'Smoke Test Report',
-                    reportTitles:          'DemoWebShop Smoke Tests'
-                ])
-            }
-        }
-
-        // ── Archive artifacts ─────────────────────────────────────────────────
-        stage('Archive Artifacts') {
-            steps {
-                echo "Archiving results..."
+                echo "Archiving test results and screenshots..."
                 archiveArtifacts(
-                    artifacts:         'screenshots/**/*.png, reports/*.html, reports/*.xlsx, data/*.xlsx',
+                    artifacts:         'reports/*.html, reports/*.xlsx, screenshots/**/*.png',
                     allowEmptyArchive: true,
                     fingerprint:       true
                 )
@@ -133,10 +117,10 @@ pipeline {
             echo "Pipeline PASSED - all smoke tests green."
         }
         failure {
-            echo "Pipeline FAILED - check Smoke Test Report for details."
+            echo "Pipeline FAILED - download reports from Build Artifacts."
         }
         always {
-            echo "Build #${env.BUILD_NUMBER} complete."
+            echo "Build #${env.BUILD_NUMBER} complete. Download reports from Build Artifacts above."
         }
     }
 }
